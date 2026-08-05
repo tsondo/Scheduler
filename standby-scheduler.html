@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stand-by Scheduler</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#ffffff; --ink:#1c2430; --muted:#66707d; --line:#d9dee5;
+    --standby:#e33b3b; --standby-soft:#fadcdc;
+    --leave:#f5d40a;  --leave-soft:#fdf6c8;
+    --family:#3fae5a; --family-soft:#d9f0e0;
+    --holiday:#f5a623;--holiday-soft:#fdeccd;
+    --misc:#3b7de3;   --misc-soft:#dbe8fb;
+    --weekend:#e8eaee;
+    --accent:#20415f;
+    font-size:15px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;
+    font-variant-numeric:tabular-nums;}
+  button{font:inherit;cursor:pointer}
+  input,textarea,select{font:inherit;color:var(--ink)}
+  h1,h2,h3{margin:0;font-weight:600}
+
+  /* ---------- header ---------- */
+  header{background:var(--accent);color:#fff;padding:.55rem 1rem;
+    display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+  header h1{font-size:1.05rem;letter-spacing:.02em}
+  .yeartabs{display:flex;gap:.25rem;flex-wrap:wrap}
+  .yeartabs button{background:rgba(255,255,255,.14);border:0;color:#fff;
+    padding:.3rem .8rem;border-radius:6px 6px 0 0;font-weight:600}
+  .yeartabs button.active{background:var(--bg);color:var(--ink)}
+  .hdr-actions{margin-left:auto;display:flex;gap:.4rem;flex-wrap:wrap}
+  .hdr-actions button{background:transparent;border:1px solid rgba(255,255,255,.5);
+    color:#fff;padding:.3rem .7rem;border-radius:6px}
+  .hdr-actions button:hover{background:rgba(255,255,255,.15)}
+  .filestatus{font-size:.75rem;color:rgba(255,255,255,.85);align-self:center;
+    max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .filestatus.warn{color:#ffd76e;font-weight:600}
+
+  main{max-width:1400px;margin:0 auto;padding:1rem}
+
+  /* ---------- setup cards ---------- */
+  .setup{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+  @media(max-width:900px){.setup{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding: .9rem 1rem}
+  .card h2{font-size:.95rem;margin-bottom:.5rem;color:var(--accent)}
+  .card .hint{color:var(--muted);font-size:.8rem;margin:.25rem 0 .5rem}
+  textarea{width:100%;min-height:120px;border:1px solid var(--line);border-radius:6px;
+    padding:.5rem;resize:vertical}
+  .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-top:.5rem}
+  .row label{font-size:.85rem;color:var(--muted)}
+  input[type=date],input[type=text]{border:1px solid var(--line);border-radius:6px;padding:.35rem .5rem}
+  .btn{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:.4rem .9rem;font-weight:600}
+  .btn.secondary{background:#e6eaef;color:var(--ink)}
+  .btn:hover{filter:brightness(1.1)}
+  .pill-list{display:flex;flex-direction:column;gap:.3rem;margin-top:.6rem;max-height:180px;overflow:auto}
+  .pill{display:flex;align-items:center;gap:.5rem;font-size:.85rem;
+    background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:.3rem .5rem}
+  .pill b{white-space:nowrap}
+  .pill .del{margin-left:auto;border:0;background:none;color:#b33;font-weight:700;padding:0 .3rem}
+  .count{color:var(--muted);font-size:.8rem}
+
+  /* ---------- toolbar ---------- */
+  .toolbar{position:sticky;top:0;z-index:20;background:var(--panel);
+    border:1px solid var(--line);border-radius:8px;padding:.5rem .8rem;
+    display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem;
+    box-shadow:0 2px 6px rgba(0,0,0,.06)}
+  .toolbar .lbl{font-size:.8rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+  .tool{display:flex;align-items:center;gap:.35rem;border:2px solid transparent;
+    border-radius:6px;padding:.25rem .55rem;background:var(--bg);font-size:.85rem}
+  .tool .sw{width:14px;height:14px;border-radius:3px;border:1px solid rgba(0,0,0,.25)}
+  .tool.active{border-color:var(--accent);background:#eef3f8;font-weight:600}
+  .legend-static{display:flex;align-items:center;gap:.35rem;font-size:.85rem;padding:.25rem .3rem}
+  .misc-name{width:110px;border:1px dashed var(--line);border-radius:4px;padding:.15rem .3rem;font-size:.85rem}
+  .toolbar .spacer{flex:1}
+
+  /* ---------- month grids ---------- */
+  .month{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    margin-bottom:1rem;padding:.7rem .8rem;overflow-x:auto}
+  .month h3{font-size:1rem;color:var(--accent);margin-bottom:.45rem}
+  table{border-collapse:collapse;width:100%}
+  th,td{border:1px solid var(--line);text-align:center;font-size:.78rem;padding:0}
+  th{background:#f0f2f5;font-weight:600}
+  th.namecol,td.namecol{min-width:150px;text-align:left;padding:.2rem .45rem;
+    white-space:nowrap;background:var(--panel);position:sticky;left:0;z-index:2;
+    border-right:2px solid var(--line)}
+  td.day{min-width:26px;height:26px;position:relative;user-select:none}
+  td.day.clickable{cursor:pointer}
+  th.dow{font-weight:500;color:var(--muted)}
+  .wknd{background:var(--weekend)}
+  .hol-h{background:var(--holiday)!important;color:#fff}
+  .hol-t{background:var(--holiday-soft)}
+  td.standby{background:var(--standby)}
+  td.m-leave{background:var(--leave)}
+  td.m-family{background:var(--family)}
+  td.m-misc{background:var(--misc)}
+  td.m-holiday{background:var(--holiday)}
+  td.day.sb-flag::after{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--standby)}
+  td.inactive{background:repeating-linear-gradient(45deg,#f2f3f5,#f2f3f5 4px,#e6e8eb 4px,#e6e8eb 8px)}
+  td.today{outline:2px solid var(--accent);outline-offset:-2px}
+  .hol-note{font-size:.75rem;color:var(--muted);margin-top:.4rem}
+
+  /* week reassign popover */
+  .pop{position:absolute;z-index:50;background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:.5rem;min-width:190px}
+  .pop h4{margin:0 0 .4rem;font-size:.8rem;color:var(--muted);font-weight:600}
+  .pop button{display:block;width:100%;text-align:left;background:none;border:0;
+    padding:.3rem .45rem;border-radius:5px;font-size:.85rem}
+  .pop button:hover{background:var(--bg)}
+  .pop button.cur{font-weight:700;color:var(--standby)}
+
+  footer{color:var(--muted);font-size:.78rem;padding:1rem;text-align:center}
+  details.help{margin-bottom:1rem}
+  details.help summary{cursor:pointer;color:var(--accent);font-weight:600;font-size:.85rem}
+  details.help .card{margin-top:.5rem;font-size:.85rem;line-height:1.5}
+
+  @media print{
+    header,.setup,.toolbar,footer,details.help{display:none}
+    .month{break-inside:avoid;border:0;box-shadow:none}
+    body{background:#fff}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Stand-by Scheduler</h1>
+  <nav class="yeartabs" id="yearTabs"></nav>
+  <div class="hdr-actions">
+    <span id="fileStatus" class="filestatus"></span>
+    <button id="fileBtn" title="Connect the shared data file (SharePoint/OneDrive synced folder)">Data file</button>
+    <button id="addYearBtn" title="Add a year tab">+ Year</button>
+    <button id="exportBtn" title="Download all data as a JSON file">Export</button>
+    <button id="importBtn" title="Load data from a JSON file">Import</button>
+    <button onclick="window.print()" title="Print the current year">Print</button>
+  </div>
+  <input type="file" id="importFile" accept=".json" hidden>
+</header>
+
+<main>
+
+<details class="help">
+  <summary>How this works</summary>
+  <div class="card">
+    <b>Rotation.</b> Stand-by runs Monday–Sunday and rotates through the team in list order.
+    Enter names below (one per line) and pick the date the list takes effect —
+    it applies from the first Monday on or after that date, and the schedule from there forward
+    is rebuilt automatically; earlier weeks are untouched.
+    To add or remove someone mid-year, edit the list and apply it with a new effective date.<br>
+    <b>Swaps.</b> With no marker selected, click any cell to reassign stand-by — for that single day or the whole week.
+    Swap a stretch of days by setting each day individually. "Auto" puts a day or week back on rotation;
+    reassigning a whole week clears any day swaps inside it.<br>
+    <b>Leave / Family day / Misc.</b> Pick a marker in the toolbar, then click or drag across a person's days.
+    Use the eraser to clear. The blue marker can be renamed to whatever you track.<br>
+    <b>Holidays.</b> Paste the holiday memo text — dates like "Monday, February 16 — Washington's Birthday" are picked out automatically and shade the whole column.<br>
+    <b>Sharing (SharePoint).</b> Sync the SharePoint document library to your PC with OneDrive, then click
+    <i>Data file → Create shared file</i> and save <code>standby-data.json</code> into that synced folder.
+    Everyone else opens their copy of this page and does <i>Data file → Open shared file</i> once, pointing at the same JSON.
+    Edits save to the file automatically a moment after you make them, and the page picks up other people's saves
+    about every half minute. If two people save at nearly the same time, the second saver is warned and chooses
+    which version wins. Needs Edge or Chrome. Browsers usually re-ask permission per session — click the yellow
+    "reconnect" notice in the header when it appears.<br>
+    <b>Backups.</b> Without a connected data file, everything stays in this browser only. Export/Import always
+    work as manual backup either way.
+  </div>
+</details>
+
+<section class="setup">
+  <div class="card">
+    <h2>Team</h2>
+    <div class="hint">One name per line, in rotation order. Applies from the effective date's week forward.</div>
+    <textarea id="rosterText" placeholder="Chuck Reid&#10;Frehiwot Kedanemariam&#10;Derek Johnson"></textarea>
+    <div class="row">
+      <label>Effective</label>
+      <input type="date" id="rosterDate">
+      <button class="btn" id="applyRoster">Apply roster</button>
+    </div>
+    <div class="pill-list" id="rosterHistory"></div>
+    <div class="count" id="fairness"></div>
+  </div>
+
+  <div class="card">
+    <h2>Holidays</h2>
+    <div class="hint">Paste the year's holiday text (any format with a month + day per line), or add one manually.</div>
+    <textarea id="holidayText" placeholder="Thursday, January 01&#9;New Year's Day&#10;Monday, January 19&#9;Birthday of Martin Luther King, Jr."></textarea>
+    <div class="row">
+      <button class="btn" id="parseHolidays">Add from text</button>
+      <input type="date" id="holDate">
+      <input type="text" id="holName" placeholder="Holiday name" style="width:150px">
+      <button class="btn secondary" id="addHoliday">Add one</button>
+    </div>
+    <div class="pill-list" id="holidayList"></div>
+  </div>
+</section>
+
+<div class="toolbar">
+  <span class="lbl">Markers</span>
+  <span class="legend-static"><span class="sw tool-sw" style="background:var(--standby)"></span>Stand by</span>
+  <span class="legend-static"><span class="sw tool-sw" style="background:var(--holiday)"></span>Holiday</span>
+  <button class="tool" data-tool="leave"><span class="sw" style="background:var(--leave)"></span>Leave</button>
+  <button class="tool" data-tool="family"><span class="sw" style="background:var(--family)"></span>Family day</button>
+  <button class="tool" data-tool="misc"><span class="sw" style="background:var(--misc)"></span>
+    <input class="misc-name" id="miscName" value="Misc" title="Rename this marker"></button>
+  <button class="tool" data-tool="erase"><span class="sw" style="background:#fff"></span>Eraser</button>
+  <span class="spacer"></span>
+  <span class="count" id="toolHint">Select a marker, then click or drag on the calendar</span>
+</div>
+
+<div id="months"></div>
+
+</main>
+<footer>Connected to a shared data file: everyone pointing at the same JSON sees the same schedule (updates appear within ~30 s). Not connected: data lives only in this browser. Export regularly for backup either way.</footer>
+
+<script>
+"use strict";
+/* ============================= state ============================= */
+const KEY="standby-scheduler-v1";
+const DOW=["Su","Mo","Tu","We","Th","Fr","Sa"];
+const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+let state=load();
+let curYear=state.lastYear||String(new Date().getFullYear());
+if(!state.years[curYear]) addYear(curYear);
+let tool=null;          // leave | family | misc | erase | null
+let painting=false;
+let paintMode=null;     // 'set' or 'clear' during a drag
+
+function blankYear(){return {rosterChanges:[],holidays:[],overrides:{},dayOverrides:{},marks:{},miscLabel:"Misc"};}
+function load(){
+  try{const s=JSON.parse(localStorage.getItem(KEY));if(s&&s.years)return s;}catch(e){}
+  return {years:{},lastYear:null};
+}
+function save(){
+  state.lastYear=curYear;
+  const j=JSON.stringify(state);
+  localStorage.setItem(KEY,j);                 // local cache always
+  if(fileHandle && j!==lastSyncedJSON) scheduleWrite();
+  updateFileStatus();
+}
+function Y(){const y=state.years[curYear]; if(!y.dayOverrides)y.dayOverrides={}; return y;}
+function addYear(y){state.years[y]=state.years[y]||blankYear();}
+
+/* ============================= dates ============================= */
+const iso=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+function mondayOf(d){const x=new Date(d);x.setDate(x.getDate()-((x.getDay()+6)%7));return x;}
+
+/* ======================= rotation engine ======================= */
+/* Returns Map weekISO(Monday) -> {auto, assigned, roster} covering the year */
+function computeWeeks(){
+  const y=+curYear, data=Y();
+  const changes=[...data.rosterChanges].sort((a,b)=>a.date<b.date?-1:1);
+  const weeks=new Map();
+  let ws=mondayOf(new Date(y,0,1));
+  const end=new Date(y,11,31);
+  let lastName=null,lastIdx=0;
+  while(ws<=end){
+    const wISO=iso(ws);
+    let roster=[];
+    for(const c of changes){ if(c.date<=wISO) roster=c.names; else break; }
+    if(!roster.length&&changes.length){          // partial first week of the year
+      const we=new Date(ws); we.setDate(we.getDate()+6);
+      const first=changes.find(c=>c.date<=iso(we));
+      if(first)roster=first.names;
+    }
+    let auto=null;
+    if(roster.length){
+      if(lastName!==null && roster.includes(lastName))
+        auto=roster[(roster.indexOf(lastName)+1)%roster.length];
+      else
+        auto=roster[lastIdx%roster.length];
+      lastName=auto; lastIdx=roster.indexOf(auto);
+    }
+    const ov=data.overrides[wISO];
+    weeks.set(wISO,{auto,assigned:(ov&&roster.includes(ov))?ov:(ov||auto),roster});
+    ws=new Date(ws); ws.setDate(ws.getDate()+7);
+  }
+  return weeks;
+}
+
+/* people visible in a given month = union of rosters covering it */
+function monthPeople(weeks,y,m){
+  const seen=new Set(),out=[];
+  for(const [wISO,w] of weeks){
+    const wd=new Date(wISO+"T00:00");
+    const we=new Date(wd); we.setDate(we.getDate()+6);
+    if(we<new Date(y,m,1)||wd>new Date(y,m+1,0))continue;
+    for(const n of w.roster) if(!seen.has(n)){seen.add(n);out.push(n);}
+    if(w.assigned&&!seen.has(w.assigned)){seen.add(w.assigned);out.push(w.assigned);}
+  }
+  return out;
+}
+
+/* is `name` on the active roster on date d? (for hatching) */
+function activeOn(weeks,name,dISO){
+  const w=weeks.get(iso(mondayOf(new Date(dISO+"T00:00"))));
+  return w? (w.roster.includes(name)||w.assigned===name):false;
+}
+
+/* ========================= rendering ========================= */
+function render(){
+  renderTabs(); renderRosterPanel(); renderHolidayPanel();
+  document.getElementById("miscName").value=Y().miscLabel||"Misc";
+  renderMonths();
+  save();
+}
+
+function renderTabs(){
+  const el=document.getElementById("yearTabs"); el.innerHTML="";
+  Object.keys(state.years).sort().forEach(y=>{
+    const b=document.createElement("button");
+    b.textContent=y; if(y===curYear)b.classList.add("active");
+    b.onclick=()=>{curYear=y;render();};
+    el.appendChild(b);
+  });
+}
+
+function renderRosterPanel(){
+  const data=Y();
+  const hist=document.getElementById("rosterHistory"); hist.innerHTML="";
+  const changes=[...data.rosterChanges].sort((a,b)=>a.date<b.date?-1:1);
+  changes.forEach((c,i)=>{
+    const p=document.createElement("div"); p.className="pill";
+    p.innerHTML=`<b>${c.date}</b><span>${c.names.join(", ")||"(empty)"} — ${c.names.length} people</span>`;
+    const d=document.createElement("button"); d.className="del"; d.textContent="✕";
+    d.title="Remove this roster change";
+    d.onclick=()=>{ if(confirm("Remove the roster change effective "+c.date+"?")){
+      data.rosterChanges=data.rosterChanges.filter(x=>x!==c); render(); }};
+    p.appendChild(d); hist.appendChild(p);
+  });
+  if(changes.length){
+    const last=changes[changes.length-1];
+    const ta=document.getElementById("rosterText");
+    if(!ta.dataset.touched) ta.value=last.names.join("\n");
+  }
+  const rd=document.getElementById("rosterDate");
+  if(!rd.value) rd.value=curYear+"-01-01";
+  // fairness counts (days, so partial-week swaps count correctly)
+  const weeks=computeWeeks(); const cnt={}; const dOv=Y().dayOverrides||{};
+  for(let dt=new Date(+curYear,0,1); dt.getFullYear()==+curYear; dt.setDate(dt.getDate()+1)){
+    const dISO=iso(dt), w=weeks.get(iso(mondayOf(dt)));
+    const who=dOv[dISO]||(w&&w.assigned);
+    if(who) cnt[who]=(cnt[who]||0)+1;
+  }
+  const f=Object.entries(cnt).map(([n,c])=>`${n}: ${c}`).join(" · ");
+  document.getElementById("fairness").textContent=f?("Stand-by days this year — "+f):"";
+}
+
+function renderHolidayPanel(){
+  const list=document.getElementById("holidayList"); list.innerHTML="";
+  [...Y().holidays].sort((a,b)=>a.date<b.date?-1:1).forEach(h=>{
+    const p=document.createElement("div"); p.className="pill";
+    p.innerHTML=`<b>${h.date}</b><span>${h.name}</span>`;
+    const d=document.createElement("button"); d.className="del"; d.textContent="✕";
+    d.onclick=()=>{Y().holidays=Y().holidays.filter(x=>x!==h);render();};
+    p.appendChild(d); list.appendChild(p);
+  });
+}
+
+function renderMonths(){
+  const wrap=document.getElementById("months"); wrap.innerHTML="";
+  const y=+curYear, weeks=computeWeeks(), data=Y();
+  const hol={}; data.holidays.forEach(h=>hol[h.date]=h.name);
+  const todayISO=iso(new Date());
+  const miscLabel=data.miscLabel||"Misc";
+
+  for(let m=0;m<12;m++){
+    const days=new Date(y,m+1,0).getDate();
+    const people=monthPeople(weeks,y,m);
+    const sec=document.createElement("section"); sec.className="month";
+    sec.innerHTML=`<h3>${MONTHS[m]} ${y}</h3>`;
+    const t=document.createElement("table");
+
+    // header rows
+    const trN=document.createElement("tr");
+    trN.innerHTML=`<th class="namecol">Name</th>`;
+    const trD=document.createElement("tr");
+    trD.innerHTML=`<th class="namecol dow" style="font-weight:400;color:var(--muted)">Mon–Sun rotation</th>`;
+    const holNotes=[];
+    for(let d=1;d<=days;d++){
+      const dt=new Date(y,m,d), dISO=iso(dt), wk=dt.getDay()===0||dt.getDay()===6;
+      const isHol=!!hol[dISO];
+      if(isHol) holNotes.push(`${MONTHS[m].slice(0,3)} ${d}: ${hol[dISO]}`);
+      trN.insertAdjacentHTML("beforeend",
+        `<th class="${isHol?'hol-h':wk?'wknd':''}" title="${isHol?hol[dISO]:''}">${d}</th>`);
+      trD.insertAdjacentHTML("beforeend",
+        `<th class="dow ${isHol?'hol-h':wk?'wknd':''}">${DOW[dt.getDay()]}</th>`);
+    }
+    t.appendChild(trN); t.appendChild(trD);
+
+    // person rows
+    if(!people.length){
+      const tr=document.createElement("tr");
+      tr.innerHTML=`<td class="namecol" style="color:var(--muted)">No roster yet — add names above</td>`+
+        `<td colspan="${days}" style="text-align:left;padding:.3rem .5rem;color:var(--muted)">Apply a team roster to build the rotation.</td>`;
+      t.appendChild(tr);
+    }
+    for(const name of people){
+      const tr=document.createElement("tr");
+      tr.insertAdjacentHTML("beforeend",`<td class="namecol">${name}</td>`);
+      for(let d=1;d<=days;d++){
+        const dt=new Date(y,m,d), dISO=iso(dt);
+        const wISO=iso(mondayOf(dt));
+        const w=weeks.get(wISO);
+        const dayAssignee=data.dayOverrides[dISO]||(w&&w.assigned);
+        const std=dayAssignee===name;
+        const mark=data.marks[name+"|"+dISO];
+        const wk=dt.getDay()===0||dt.getDay()===6;
+        const isHol=!!hol[dISO];
+        const act=activeOn(weeks,name,dISO);
+        const td=document.createElement("td");
+        td.className="day clickable";
+        td.dataset.name=name; td.dataset.date=dISO; td.dataset.week=wISO;
+        let title=name+" — "+DOW[dt.getDay()]+" "+MONTHS[m]+" "+d;
+        if(!act){td.classList.add("inactive"); title+=" (not on roster)";}
+        else if(mark){
+          td.classList.add("m-"+mark);
+          title+=" — "+(mark==="misc"?miscLabel:mark==="family"?"Family day":mark.charAt(0).toUpperCase()+mark.slice(1));
+          if(std){td.classList.add("sb-flag"); title+=" (stand-by week)";}
+        }
+        else if(std){td.classList.add("standby");
+          title+=" — Stand by"+(data.dayOverrides[dISO]?" (day swap)":"")+" (click to swap)";}
+        else if(isHol){td.classList.add("hol-t"); title+=" — "+hol[dISO];}
+        else if(wk){td.classList.add("wknd");}
+        if(dISO===todayISO)td.classList.add("today");
+        td.title=title;
+        tr.appendChild(td);
+      }
+      t.appendChild(tr);
+    }
+    sec.appendChild(t);
+    if(holNotes.length){
+      const n=document.createElement("div"); n.className="hol-note";
+      n.textContent="Holidays — "+holNotes.join("   ·   ");
+      sec.appendChild(n);
+    }
+    wrap.appendChild(sec);
+  }
+}
+
+/* ==================== interactions: painting ==================== */
+const monthsEl=document.getElementById("months");
+monthsEl.addEventListener("mousedown",e=>{
+  const td=e.target.closest("td.day"); if(!td)return;
+  if(td.classList.contains("inactive"))return;
+  if(!tool){ maybeReassign(td,e); return; }
+  e.preventDefault();
+  painting=true;
+  const k=td.dataset.name+"|"+td.dataset.date;
+  if(tool==="erase"){ paintMode="clear"; }
+  else { paintMode = (Y().marks[k]===tool)?"clear":"set"; }
+  applyPaint(td);
+});
+monthsEl.addEventListener("mouseover",e=>{
+  if(!painting)return;
+  const td=e.target.closest("td.day"); if(td&&!td.classList.contains("inactive"))applyPaint(td);
+});
+window.addEventListener("mouseup",()=>{ if(painting){painting=false;render();} });
+function applyPaint(td){
+  const k=td.dataset.name+"|"+td.dataset.date;
+  if(paintMode==="clear"||tool==="erase") delete Y().marks[k];
+  else Y().marks[k]=tool;
+  // quick visual feedback without full re-render
+  td.classList.remove("m-leave","m-family","m-misc","standby","hol-t","wknd");
+  if(paintMode==="set") td.classList.add("m-"+tool);
+  save();
+}
+
+/* click a stand-by cell (no tool selected) to reassign the week */
+let popEl=null;
+function closePop(){ if(popEl){popEl.remove();popEl=null;} }
+document.addEventListener("mousedown",e=>{ if(popEl&&!popEl.contains(e.target))closePop(); },true);
+function maybeReassign(td,e){
+  const wISO=td.dataset.week, dISO=td.dataset.date, data=Y();
+  const weeks=computeWeeks(); const w=weeks.get(wISO);
+  if(!w||!w.roster.length)return;
+  closePop();
+  const dayCur=data.dayOverrides[dISO]||w.assigned;
+  const wd=new Date(wISO+"T00:00"), we=new Date(wd); we.setDate(we.getDate()+6);
+  popEl=document.createElement("div"); popEl.className="pop";
+  const mk=(label,fn,cur)=>{const b=document.createElement("button");
+    b.textContent=label; if(cur)b.classList.add("cur"); b.onclick=fn; popEl.appendChild(b);};
+  const hd=t=>{const h=document.createElement("h4");h.textContent=t;popEl.appendChild(h);};
+
+  hd("Stand-by on "+dISO+" (this day only)");
+  for(const n of w.roster)
+    mk(n,()=>{ if(n===w.assigned) delete data.dayOverrides[dISO];
+               else data.dayOverrides[dISO]=n;
+               closePop(); render(); }, n===dayCur);
+  if(data.dayOverrides[dISO])
+    mk("↩ Auto ("+w.assigned+")",()=>{delete data.dayOverrides[dISO];closePop();render();},false);
+
+  hd("Whole week "+wISO+" → "+iso(we));
+  for(const n of w.roster)
+    mk(n,()=>{ if(n===w.auto) delete data.overrides[wISO]; else data.overrides[wISO]=n;
+               // a week reassignment supersedes day swaps inside it
+               for(let i=0;i<7;i++){const x=new Date(wd);x.setDate(x.getDate()+i);delete data.dayOverrides[iso(x)];}
+               closePop(); render(); }, n===w.assigned);
+  if(data.overrides[wISO])
+    mk("↩ Auto ("+w.auto+")",()=>{delete data.overrides[wISO];closePop();render();},false);
+
+  document.body.appendChild(popEl);
+  popEl.style.left=Math.min(e.pageX,window.scrollX+document.documentElement.clientWidth-210)+"px";
+  popEl.style.top=(e.pageY+8)+"px";
+}
+
+/* ==================== toolbar ==================== */
+document.querySelectorAll(".tool[data-tool]").forEach(b=>{
+  b.addEventListener("click",e=>{
+    if(e.target.id==="miscName")return;      // typing in the rename box
+    const t=b.dataset.tool;
+    tool=(tool===t)?null:t;
+    document.querySelectorAll(".tool").forEach(x=>x.classList.toggle("active",x.dataset.tool===tool));
+    document.getElementById("toolHint").textContent =
+      tool ? (tool==="erase"?"Click or drag to erase markers":"Click or drag on days to mark — click again to unmark")
+           : "Select a marker, then click or drag on the calendar. With no marker, click red cells to swap weeks.";
+  });
+});
+document.getElementById("miscName").addEventListener("change",e=>{
+  Y().miscLabel=e.target.value.trim()||"Misc"; render();
+});
+document.getElementById("miscName").addEventListener("mousedown",e=>e.stopPropagation());
+
+/* ==================== roster panel ==================== */
+document.getElementById("rosterText").addEventListener("input",e=>e.target.dataset.touched="1");
+document.getElementById("applyRoster").onclick=()=>{
+  const names=document.getElementById("rosterText").value
+    .split(/\n/).map(s=>s.trim().replace(/\s+/g," ")).filter(Boolean);
+  const date=document.getElementById("rosterDate").value;
+  if(!date){alert("Pick an effective date.");return;}
+  if(!names.length&&!confirm("The list is empty — apply an empty roster from "+date+"?"))return;
+  const data=Y();
+  const ex=data.rosterChanges.find(c=>c.date===date);
+  if(ex)ex.names=names; else data.rosterChanges.push({date,names});
+  document.getElementById("rosterText").dataset.touched="";
+  render();
+};
+
+/* ==================== holiday parsing ==================== */
+const MRX=MONTHS.map(m=>m.slice(0,3)).join("|");
+function parseHolidayLine(line){
+  const y=curYear;
+  let m=line.match(new RegExp("("+MRX+")[a-z]*\\.?\\s+(\\d{1,2})","i"));
+  let dISO=null;
+  if(m){
+    const mi=MONTHS.findIndex(x=>x.toLowerCase().startsWith(m[1].toLowerCase().slice(0,3)));
+    dISO=y+"-"+String(mi+1).padStart(2,"0")+"-"+String(+m[2]).padStart(2,"0");
+  }else{
+    m=line.match(/(\d{1,2})[\/.](\d{1,2})/);
+    if(m)dISO=y+"-"+String(+m[1]).padStart(2,"0")+"-"+String(+m[2]).padStart(2,"0");
+  }
+  if(!dISO)return null;
+  let name=line.replace(m[0],"")
+    .replace(/\b(Sun|Mon|Tues?|Wednes|Thurs?|Fri|Satur)day\b/gi,"")
+    .replace(/[\*\t,–—-]+/g," ").replace(/\s+/g," ").trim();
+  return {date:dISO,name:name||"Holiday"};
+}
+document.getElementById("parseHolidays").onclick=()=>{
+  const lines=document.getElementById("holidayText").value.split(/\n/);
+  const data=Y(); let added=0;
+  for(const ln of lines){
+    if(!ln.trim())continue;
+    const h=parseHolidayLine(ln);
+    if(h&&!data.holidays.some(x=>x.date===h.date)){data.holidays.push(h);added++;}
+  }
+  if(!added)alert("No new dates found. Lines need a month + day (e.g. \"Monday, May 25  Memorial Day\").");
+  else document.getElementById("holidayText").value="";
+  render();
+};
+document.getElementById("addHoliday").onclick=()=>{
+  const d=document.getElementById("holDate").value,
+        n=document.getElementById("holName").value.trim();
+  if(!d){alert("Pick a date.");return;}
+  const data=Y();
+  if(!data.holidays.some(x=>x.date===d))data.holidays.push({date:d,name:n||"Holiday"});
+  document.getElementById("holName").value="";
+  render();
+};
+
+/* ==================== years / export / import ==================== */
+document.getElementById("addYearBtn").onclick=()=>{
+  const y=prompt("Add which year?",String(+curYear+1));
+  if(!y||!/^\d{4}$/.test(y.trim())){if(y)alert("Enter a 4-digit year.");return;}
+  const yy=y.trim();
+  if(!state.years[yy]){
+    addYear(yy);
+    // carry the latest roster forward as the Jan 1 roster
+    const prev=state.years[curYear];
+    const ch=[...(prev?.rosterChanges||[])].sort((a,b)=>a.date<b.date?-1:1);
+    if(ch.length)state.years[yy].rosterChanges.push({date:yy+"-01-01",names:[...ch[ch.length-1].names]});
+    state.years[yy].miscLabel=prev?.miscLabel||"Misc";
+  }
+  curYear=yy; document.getElementById("rosterDate").value=yy+"-01-01"; render();
+};
+document.getElementById("exportBtn").onclick=()=>{
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="standby-schedule-backup-"+iso(new Date())+".json";
+  a.click(); URL.revokeObjectURL(a.href);
+};
+document.getElementById("importBtn").onclick=()=>document.getElementById("importFile").click();
+document.getElementById("importFile").addEventListener("change",async e=>{
+  const f=e.target.files[0]; if(!f)return;
+  try{
+    const s=JSON.parse(await f.text());
+    if(!s.years)throw 0;
+    if(confirm("Replace everything in this browser with the imported file?")){
+      state=s; curYear=state.lastYear||Object.keys(state.years).sort()[0]||curYear;
+      if(!state.years[curYear])addYear(curYear);
+      render();
+    }
+  }catch{alert("That file doesn't look like a Stand-by Scheduler export.");}
+  e.target.value="";
+});
+
+/* ============ shared data file (SharePoint / OneDrive-synced JSON) ============ */
+var fileHandle=null;
+let lastLoadedRev=0, lastSyncedJSON=null, writeTimer=null, pendingWrite=false, writingNow=false;
+const hasFS = "showOpenFilePicker" in window;
+const JSONTYPE=[{description:"Scheduler data",accept:{"application/json":[".json"]}}];
+
+const idb={db:null,
+  open(){return new Promise((res,rej)=>{const r=indexedDB.open("sbs-file",1);
+    r.onupgradeneeded=()=>r.result.createObjectStore("kv");
+    r.onsuccess=()=>{idb.db=r.result;res();}; r.onerror=()=>rej(r.error);});},
+  get(k){return new Promise((res,rej)=>{const t=idb.db.transaction("kv").objectStore("kv").get(k);
+    t.onsuccess=()=>res(t.result); t.onerror=()=>rej(t.error);});},
+  set(k,v){return new Promise((res,rej)=>{const t=idb.db.transaction("kv","readwrite").objectStore("kv").put(v,k);
+    t.onsuccess=()=>res(); t.onerror=()=>rej(t.error);});},
+  del(k){return new Promise((res,rej)=>{const t=idb.db.transaction("kv","readwrite").objectStore("kv").delete(k);
+    t.onsuccess=()=>res(); t.onerror=()=>rej(t.error);});}
+};
+
+function editorName(){
+  let n=localStorage.getItem("sbs-editor");
+  if(!n){n=(prompt("Your name or initials (shown to others as \u201clast saved by\u201d):")||"").trim()||"unknown";
+    localStorage.setItem("sbs-editor",n);}
+  return n;
+}
+
+function adoptState(s){
+  state=s; lastLoadedRev=s.meta&&s.meta.rev||0;
+  if(!state.years)state.years={};
+  curYear=state.years[curYear]?curYear:(state.lastYear&&state.years[state.lastYear]?state.lastYear
+          :Object.keys(state.years).sort()[0]||String(new Date().getFullYear()));
+  addYear(curYear);
+  lastSyncedJSON=JSON.stringify(state);
+  localStorage.setItem(KEY,lastSyncedJSON);
+}
+
+function scheduleWrite(){ pendingWrite=true; clearTimeout(writeTimer); writeTimer=setTimeout(writeFile,700); }
+
+async function writeFile(){
+  if(!fileHandle)return;
+  clearTimeout(writeTimer);
+  try{
+    writingNow=true;
+    if(await fileHandle.queryPermission({mode:"readwrite"})!=="granted"){
+      updateFileStatus(); return;               // reconnect notice stays lit
+    }
+    // conflict check: has someone saved since we last read/wrote?
+    let diskRev=0, disk=null;
+    try{
+      const f=await fileHandle.getFile();
+      const txt=await f.text();
+      if(txt){ disk=JSON.parse(txt); diskRev=disk.meta&&disk.meta.rev||0; }
+    }catch(e){}
+    if(disk&&diskRev!==lastLoadedRev){
+      const who=disk.meta&&disk.meta.savedBy||"someone", when=disk.meta&&disk.meta.savedAt||"";
+      const keepTheirs=confirm("Heads up — the data file was saved by "+who+(when?" at "+when:"")+
+        " after you loaded it.\n\nOK = load their version (your latest change here is discarded)\nCancel = save your version over theirs");
+      if(keepTheirs){ adoptState(disk); pendingWrite=false; render(); return; }
+    }
+    state.meta={rev:Math.max(diskRev,lastLoadedRev)+1,
+      savedBy:editorName(), savedAt:new Date().toLocaleString()};
+    lastLoadedRev=state.meta.rev;
+    const w=await fileHandle.createWritable();
+    await w.write(JSON.stringify(state,null,1));
+    await w.close();
+    lastSyncedJSON=JSON.stringify(state);
+    localStorage.setItem(KEY,lastSyncedJSON);
+    pendingWrite=false;
+  }catch(e){
+    alert("Couldn't save to the shared data file ("+(e&&e.message||e)+").\nYour changes are kept in this browser — use Export as a backup, then check the file connection.");
+  }finally{ writingNow=false; updateFileStatus(); }
+}
+
+async function loadFromHandle(){
+  const f=await fileHandle.getFile();
+  const txt=await f.text();
+  if(txt&&txt.trim()){
+    const s=JSON.parse(txt);
+    if(!s.years)throw new Error("not a scheduler data file");
+    adoptState(s);
+    render();
+  }else{                                        // brand-new empty file: seed it
+    lastLoadedRev=0; lastSyncedJSON=null;
+    await writeFile();
+    render();
+  }
+}
+
+async function refreshFromDisk(){               // pick up other people's saves
+  if(!fileHandle||writingNow||pendingWrite)return;
+  try{
+    if(await fileHandle.queryPermission({mode:"readwrite"})!=="granted")return;
+    const f=await fileHandle.getFile();
+    const txt=await f.text(); if(!txt)return;
+    const s=JSON.parse(txt);
+    if((s.meta&&s.meta.rev||0)>lastLoadedRev){ adoptState(s); render(); }
+  }catch(e){}
+}
+setInterval(refreshFromDisk,30000);
+
+function updateFileStatus(){
+  const el=document.getElementById("fileStatus");
+  el.classList.remove("warn"); el.onclick=null; el.style.cursor="";
+  if(!hasFS){ el.textContent="Shared file needs Edge or Chrome — local only"; return; }
+  if(!fileHandle){ el.textContent="Local only — no shared file connected"; return; }
+  fileHandle.queryPermission({mode:"readwrite"}).then(p=>{
+    if(p!=="granted"){
+      el.textContent="\u26a0 Click to reconnect "+fileHandle.name;
+      el.classList.add("warn"); el.style.cursor="pointer";
+      el.onclick=reconnect;
+    }else{
+      const m=state.meta;
+      el.textContent=fileHandle.name+(pendingWrite?" — saving\u2026":
+        m?(" — saved by "+m.savedBy+" "+m.savedAt):" — connected");
+      el.title="Shared data file. Everyone connected to this file sees the same schedule.";
+    }
+  });
+}
+
+async function reconnect(){
+  try{
+    if(await fileHandle.requestPermission({mode:"readwrite"})==="granted") await loadFromHandle();
+  }catch(e){ alert("Couldn't reconnect: "+(e&&e.message||e)); }
+  updateFileStatus();
+}
+
+async function openExisting(){
+  try{
+    const [h]=await window.showOpenFilePicker({types:JSONTYPE});
+    fileHandle=h; try{await idb.set("handle",h);}catch(e){}
+    await h.requestPermission({mode:"readwrite"});
+    await loadFromHandle();
+  }catch(e){ if(e&&e.name!=="AbortError")alert("Couldn't open that file: "+(e&&e.message||e)); }
+  updateFileStatus();
+}
+async function createNew(){
+  try{
+    const h=await window.showSaveFilePicker({suggestedName:"standby-data.json",types:JSONTYPE});
+    fileHandle=h; try{await idb.set("handle",h);}catch(e){}
+    lastLoadedRev=0; lastSyncedJSON=null;
+    await writeFile();                          // seeds the file with what's on screen now
+  }catch(e){ if(e&&e.name!=="AbortError")alert("Couldn't create the file: "+(e&&e.message||e)); }
+  updateFileStatus();
+}
+async function disconnectFile(){
+  fileHandle=null; lastLoadedRev=0; lastSyncedJSON=null; pendingWrite=false;
+  try{ await idb.del("handle"); }catch(e){}
+  updateFileStatus();
+}
+
+document.getElementById("fileBtn").addEventListener("mousedown",e=>e.stopPropagation());
+document.getElementById("fileBtn").onclick=e=>{
+  if(!hasFS){alert("Shared data files need Microsoft Edge or Google Chrome.\nIn this browser the schedule is stored locally; use Export/Import to move it.");return;}
+  closePop();
+  popEl=document.createElement("div"); popEl.className="pop";
+  const mk=(label,fn)=>{const b=document.createElement("button");b.textContent=label;
+    b.onclick=()=>{closePop();fn();};popEl.appendChild(b);};
+  const h=document.createElement("h4");
+  h.textContent=fileHandle?("Connected: "+fileHandle.name):"No shared file connected";
+  popEl.appendChild(h);
+  mk("Open shared file\u2026",openExisting);
+  mk("Create shared file\u2026",createNew);
+  if(fileHandle)mk("Reconnect / reload now",reconnect);
+  if(fileHandle)mk("Disconnect (use this browser only)",disconnectFile);
+  mk("Change my editor name",()=>{localStorage.removeItem("sbs-editor");editorName();});
+  document.body.appendChild(popEl);
+  const r=e.target.getBoundingClientRect();
+  popEl.style.left=Math.max(8,window.scrollX+r.right-200)+"px";
+  popEl.style.top=(window.scrollY+r.bottom+6)+"px";
+};
+
+/* flush a pending save if the tab is being closed/hidden */
+document.addEventListener("visibilitychange",()=>{ if(document.hidden&&pendingWrite)writeFile(); });
+window.addEventListener("beforeunload",()=>{ if(pendingWrite)writeFile(); });
+
+/* ==================== boot ==================== */
+render();
+
+/* on startup: silently re-attach the remembered file if the browser still allows it */
+(async function initFile(){
+  updateFileStatus();
+  if(!hasFS)return;
+  try{
+    await idb.open();
+    const h=await idb.get("handle");
+    if(h){
+      fileHandle=h;
+      const p=await h.queryPermission({mode:"readwrite"});
+      if(p==="granted") await loadFromHandle();
+      // otherwise the header shows the yellow reconnect notice
+    }
+  }catch(e){}
+  updateFileStatus();
+})();
+</script>
+</body>
+</html>

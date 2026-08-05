@@ -1,0 +1,16 @@
+Setup (one time, per person):
+
+Sync the SharePoint document library to the PC with OneDrive ("Sync" or "Add shortcut to OneDrive" in the library toolbar).
+Open the HTML (each person keeps their own copy — it can live in the library too, opened from the synced folder, not the browser).
+Boss: Data file → Create shared file…, save standby-data.json into the synced library folder. Whatever he's already built locally seeds the file. Everyone else: Data file → Open shared file… pointing at that same JSON.
+First save asks for a name/initials — that's what shows as "last saved by."
+
+How it behaves:
+
+Edits write to the JSON automatically ~0.7 s after you make them; OneDrive pushes it to SharePoint. The header shows the file name and who saved last.
+Everyone else's page re-reads the file every 30 s and refreshes when the revision number advances — so viewers stay current without touching anything.
+Concurrent-edit protection: before every save it re-reads the file, and if someone else saved since you last loaded, you get a prompt — take their version or overwrite with yours. With your usage pattern (boss edits, others occasionally) this should almost never fire.
+Browsers drop file permissions between sessions, so on reopening you'll often see a yellow "⚠ Click to reconnect standby-data.json" in the header — one click, one permission prompt, and it reloads. That's normal Chromium behavior, not a fault.
+If a save ever fails (sync folder offline, permissions), it tells you and your changes stay cached in the browser; Export remains the manual safety net.
+
+I tested the full flow with two simulated users against one file: seed, second-user open, autosave, poll pickup, and a forced rev conflict — all behaved correctly.
