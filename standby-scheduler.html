@@ -39,6 +39,9 @@
   .filestatus{font-size:.75rem;color:rgba(255,255,255,.85);align-self:center;
     max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .filestatus.warn{color:#ffd76e;font-weight:600}
+  .connectbar{background:#fff7df;border:1px solid #e8d48a;border-radius:8px;
+    padding:.6rem .9rem;margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap}
+  .connectbar b{color:#7a5d00}
 
   main{max-width:1400px;margin:0 auto;padding:1rem}
 
@@ -100,7 +103,8 @@
   td.m-holiday{background:var(--holiday)}
   td.day.sb-flag::after{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--standby)}
   td.inactive{background:repeating-linear-gradient(45deg,#f2f3f5,#f2f3f5 4px,#e6e8eb 4px,#e6e8eb 8px)}
-  td.today{outline:2px solid var(--accent);outline-offset:-2px}
+  th.today-h{background:#fff!important;font-weight:700}
+  th.today-h.hol-h{background:#fbd370!important;color:#6b4d00}
   .hol-note{font-size:.75rem;color:var(--muted);margin-top:.4rem}
 
   /* week reassign popover */
@@ -141,6 +145,13 @@
 </header>
 
 <main>
+
+<div class="connectbar" id="connectBar" hidden>
+  <b>Not connected to the shared data file.</b>
+  <span>You're viewing this browser's local copy only.</span>
+  <button class="btn" id="connectNow">Open standby-data.json…</button>
+  <span style="color:var(--muted);font-size:.85rem">…or drag standby-data.json onto this page</span>
+</div>
 
 <details class="help">
   <summary>How this works</summary>
@@ -382,11 +393,12 @@ function renderMonths(){
     for(let d=1;d<=days;d++){
       const dt=new Date(y,m,d), dISO=iso(dt), wk=dt.getDay()===0||dt.getDay()===6;
       const isHol=!!hol[dISO];
+      const tdy=dISO===todayISO?" today-h":"";
       if(isHol) holNotes.push(`${MONTHS[m].slice(0,3)} ${d}: ${hol[dISO]}`);
       trN.insertAdjacentHTML("beforeend",
-        `<th class="${isHol?'hol-h':wk?'wknd':''}" title="${isHol?hol[dISO]:''}">${d}</th>`);
+        `<th class="${(isHol?'hol-h':wk?'wknd':'')+tdy}" title="${(isHol?hol[dISO]+' — ':'')+(tdy?'Today':'')}">${d}</th>`);
       trD.insertAdjacentHTML("beforeend",
-        `<th class="dow ${isHol?'hol-h':wk?'wknd':''}">${DOW[dt.getDay()]}</th>`);
+        `<th class="dow ${(isHol?'hol-h':wk?'wknd':'')+tdy}">${DOW[dt.getDay()]}</th>`);
     }
     t.appendChild(trN); t.appendChild(trD);
 
@@ -424,7 +436,6 @@ function renderMonths(){
           title+=" — Stand by"+(data.dayOverrides[dISO]?" (day swap)":"")+" (click to swap)";}
         else if(isHol){td.classList.add("hol-t"); title+=" — "+hol[dISO];}
         else if(wk){td.classList.add("wknd");}
-        if(dISO===todayISO)td.classList.add("today");
         td.title=title;
         tr.appendChild(td);
       }
@@ -717,6 +728,8 @@ setInterval(refreshFromDisk,30000);
 
 function updateFileStatus(){
   const el=document.getElementById("fileStatus");
+  const bar=document.getElementById("connectBar");
+  if(bar)bar.hidden=!(hasFS&&!fileHandle);
   el.classList.remove("warn"); el.onclick=null; el.style.cursor="";
   if(!hasFS){ el.textContent="Shared file needs Edge or Chrome — local only"; return; }
   if(!fileHandle){ el.textContent="Local only — no shared file connected"; return; }
@@ -743,7 +756,7 @@ async function reconnect(){
 
 async function openExisting(){
   try{
-    const [h]=await window.showOpenFilePicker({types:JSONTYPE});
+    const [h]=await window.showOpenFilePicker({types:JSONTYPE,id:"sbs-data",startIn:"documents"});
     fileHandle=h; try{await idb.set("handle",h);}catch(e){}
     await h.requestPermission({mode:"readwrite"});
     await loadFromHandle();
@@ -752,7 +765,7 @@ async function openExisting(){
 }
 async function createNew(){
   try{
-    const h=await window.showSaveFilePicker({suggestedName:"standby-data.json",types:JSONTYPE});
+    const h=await window.showSaveFilePicker({suggestedName:"standby-data.json",types:JSONTYPE,id:"sbs-data",startIn:"documents"});
     fileHandle=h; try{await idb.set("handle",h);}catch(e){}
     lastLoadedRev=0; lastSyncedJSON=null;
     await writeFile();                          // seeds the file with what's on screen now
@@ -785,6 +798,25 @@ document.getElementById("fileBtn").onclick=e=>{
   popEl.style.left=Math.max(8,window.scrollX+r.right-200)+"px";
   popEl.style.top=(window.scrollY+r.bottom+6)+"px";
 };
+
+document.getElementById("connectNow").onclick=openExisting;
+
+/* drag standby-data.json onto the page to connect (fast path when the browser
+   forgets file permissions between sessions) */
+window.addEventListener("dragover",e=>e.preventDefault());
+window.addEventListener("drop",async e=>{
+  e.preventDefault();
+  const it=[...e.dataTransfer.items].find(i=>i.kind==="file");
+  if(!it||!it.getAsFileSystemHandle)return;
+  try{
+    const h=await it.getAsFileSystemHandle();
+    if(!h||h.kind!=="file"||!/\.json$/i.test(h.name)){alert("Drop the standby-data.json file to connect.");return;}
+    fileHandle=h; try{await idb.set("handle",h);}catch(e2){}
+    await h.requestPermission({mode:"readwrite"});
+    await loadFromHandle();
+  }catch(e2){ fileHandle=null; alert("Couldn't use that file: "+(e2&&e2.message||e2)); }
+  updateFileStatus();
+});
 
 /* flush a pending save if the tab is being closed/hidden */
 document.addEventListener("visibilitychange",()=>{ if(document.hidden&&pendingWrite)writeFile(); });
